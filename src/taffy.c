@@ -7,7 +7,6 @@
 
 /* TODO
 Bug Fixes:
-        - Debug eval_expr
 
 Features:
         - Integer, Float, Char
@@ -22,7 +21,13 @@ Features:
 int 
 eval_expr(mpc_ast_t* expr) {
         int i;
-        int result = atoi(expr->children[1]->contents);
+        int result;
+        
+        if (strstr(expr->children[1]->tag, "int_lit")) {
+                result = atoi(expr->children[1]->contents);
+        } else if (strstr(expr->children[1]->tag, "expr")) {
+                result = eval_expr(expr->children[1]);
+        }
 
         for (i = 3; i < expr->children_num - 1; i++) {
                 int n;
@@ -40,7 +45,10 @@ eval_expr(mpc_ast_t* expr) {
                         result -= n;
                 } else if (strcmp(expr->children[i-1]->contents, "/") == 0) {
                         if (n == 0) {
-                                fprintf(stderr, "[taffy] error: division by zero");
+                                fprintf(
+                                        stderr, 
+                                        "[taffy] error: division by zero"
+                                );
                                 exit(EXIT_FAILURE);
                         } else {
                                 result = (int) (result / n);
@@ -94,7 +102,7 @@ parse_script(char* script) {
         );
 
         if (mpc_parse("[taffy]", script, taffy_parser, &r)) {
-                mpc_ast_print(r.output);
+                /* mpc_ast_print(r.output); */
                 run_script(r.output);
                 mpc_ast_delete(r.output);
         } else {
@@ -117,7 +125,7 @@ load_script(char* file_name) {
         FILE* fp = fopen(file_name, "r");
 
         if (fp == NULL) {
-                fprintf(stderr, "Error: could not open file!");
+                fprintf(stderr, "[taffy] error: could not open file");
                 success = false;
         }
 
