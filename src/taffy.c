@@ -1,9 +1,10 @@
-#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "mpc/mpc.h"
+
+#include "result.h"
 
 /* TODO
 Bug Fixes:
@@ -17,24 +18,50 @@ Features:
         - loop, break, continue, loop if
 */
 
+char success = 1;
 
-int 
+result_int_t 
 eval_expr(mpc_ast_t* expr) {
+        result_int_t r;
         int i;
         int result;
-        
-        if (strstr(expr->children[1]->tag, "int_lit")) {
-                result = atoi(expr->children[1]->contents);
-        } else if (strstr(expr->children[1]->tag, "expr")) {
-                result = eval_expr(expr->children[1]);
+
+        /* Return value if expression is just a number */
+        if (expr->children_num == 0) {
+                r.result = RESULT_INT;
+                r.ok.i = atoi(expr->contents);
+                return r;
         }
 
-        for (i = 3; i < expr->children_num - 1; i++) {
+        i = 0;
+
+        /* Shift index of expression begins with a paren */
+        if (strcmp(expr->children[i]->contents, "(") == 0) i++;
+
+        /* Check if first operand is a subexpression */
+        if (expr->children[i]->children_num == 0) {
+                result = atoi(expr->children[i]->contents);
+        } else {
+                r = eval_expr(expr->children[i]);
+                if (r.result == RESULT_ERROR) {
+                        return r;
+                } else {
+                        result = r.ok.i;
+                }
+        }
+
+        /* Loop through and eval rest of the expr */
+        for (i += 2; i < expr->children_num; i += 2) {
                 int n;
-                if (strstr(expr->children[i]->tag, "int_lit")) {
+                if (expr->children[i]->children_num == 0) {
                         n = atoi(expr->children[i]->contents);
-                } else if (strstr(expr->children[i]->tag, "expr")) {
-                        n = eval_expr(expr->children[i]);
+                } else {
+                        r = eval_expr(expr->children[i]);
+                        if (r.result == RESULT_ERROR) {
+                                return r;
+                        } else {
+                                n = r.ok.i;
+                        }
                 }
 
                 if        (strcmp(expr->children[i-1]->contents, "+") == 0) {
@@ -45,91 +72,118 @@ eval_expr(mpc_ast_t* expr) {
                         result -= n;
                 } else if (strcmp(expr->children[i-1]->contents, "/") == 0) {
                         if (n == 0) {
-                                fprintf(
-                                        stderr, 
-                                        "[taffy] error: division by zero"
-                                );
-                                exit(EXIT_FAILURE);
+                                r.result = RESULT_ERROR;
+                                r.err = "division by zero";
+                                return r;
                         } else {
                                 result = (int) (result / n);
                         }
                 }
         }
 
-        return result;
+        r.result = RESULT_INT;
+        r.ok.i = result;
+        return r;
 }
 
-int
+result_void_t
 run_script(mpc_ast_t* t) {
+        result_void_t r;
         int i;
 
         /* Loop through each expression in the script */
         for (i = 1; i < t->children_num - 1; i++) {
-                printf("%d\n", eval_expr(t->children[i]));
+                r = eval_expr(t->children[i]);
+                if (r.result == RESULT_ERROR) {
+                        return r;
+                } else {
+                        printf("%d\n", r.ok.i);
+                }
         }
-        return 0;
+
+        r.result = RESULT_VOID;
+        return r;
 }
 
-void
+result_void_t
 parse_script(char* script) {
-        /* Integer literal */
+        result_void_t r;
+
+        /* Literals / Value */
         mpc_parser_t* int_lit_parser = mpc_new("int_lit");
+        mpc_parser_t* value_parser = mpc_new("value");
 
-        /* Operator */
-        mpc_parser_t* opnd_parser = mpc_new("opnd");
-        mpc_parser_t* oper_parser = mpc_new("oper");
 
-        /* Top-level expression */
+        /* Operations */
+        mpc_parser_t* sum_parser = mpc_new("sum");
+        mpc_parser_t* prod_parser = mpc_new("prod");
+
+
+        /* Top */
         mpc_parser_t* expr_parser = mpc_new("expr");
         mpc_parser_t* taffy_parser = mpc_new("taffy");
 
-        mpc_result_t r;
+        mpc_result_t ast;
 
         mpca_lang(
                 MPCA_LANG_DEFAULT,
                 "\
-                int_lit         : /-?[0-9]+/ ;\
-                opnd            : <int_lit> | <expr> ;\
-                oper            : '+' | '*' | '-' | '/' ;\
-                expr            : '(' <opnd> ( <oper> <opnd> )* ')' ;\
+                int_lit         : /[0-9]+/ ;\
+                value           : <int_lit> | '(' <expr> ')' ;\
+                prod            : <value> ( ( '*' | '/' ) <value> )* ;\
+                sum             : <prod> ( ( '+' | '-' ) <prod> )* ;\
+                expr            : <sum> ;\
                 taffy           : /^/ <expr>+ /$/ ;\
                 ",
                 int_lit_parser,
-                opnd_parser,
-                oper_parser,
+                value_parser,
+                prod_parser,
+                sum_parser,
                 expr_parser,
                 taffy_parser
         );
 
-        if (mpc_parse("[taffy]", script, taffy_parser, &r)) {
-                /* mpc_ast_print(r.output); */
-                run_script(r.output);
-                mpc_ast_delete(r.output);
+        if (mpc_parse("[taffy]", script, taffy_parser, &ast)) {
+                mpc_ast_print(ast.output);
+                puts("\n====================\n");
+
+                r = run_script(ast.output);
+                if (r.result == RESULT_ERROR) {
+                        mpc_ast_delete(ast.output);
+                        return r;
+                }
+
+                mpc_ast_delete(ast.output);
         } else {
-                mpc_err_print(r.error);
-                mpc_err_delete(r.error);
+                mpc_err_print(ast.error);
+                mpc_err_delete(ast.error);
         }
 
-        mpc_cleanup(4,
+        mpc_cleanup(6,
                 int_lit_parser,
-                opnd_parser,
-                oper_parser,
+                value_parser,
+                prod_parser,
+                sum_parser,
                 expr_parser,
                 taffy_parser
         );
+
+        r.result = RESULT_VOID;
+        return r;
 }
 
-void
+result_void_t
 load_script(char* file_name) {
-        bool success = true;
+        result_void_t r;
         FILE* fp = fopen(file_name, "r");
 
         if (fp == NULL) {
-                fprintf(stderr, "[taffy] error: could not open file");
-                success = false;
+                r.result = RESULT_ERROR;
+                r.err = "could not open file";
+                return r;
         }
 
-        if (success) {
+        {
                 char* script;
                 int size;
 
@@ -148,22 +202,33 @@ load_script(char* file_name) {
                 }
                 script[size] = '\0';
 
-                parse_script(script);
+                r = parse_script(script);
+                if (r.result == RESULT_ERROR) {
+                        free(script);
+                        return r;
+                }
 
                 free(script);
         }
 
         fclose(fp);
+
+        r.result = RESULT_VOID;
+        return r;
 }
 
 
 int
 main(int argc, char* argv[]) {
+        result_t r;
 
         if (argc != 2) {
                 fprintf(stderr, "Usage: taffy [FILE]");
         } else {
-                load_script(argv[1]);
+                r = load_script(argv[1]);
+                if (r.result == RESULT_ERROR) {
+                        fprintf(stderr, "[taffy] error: %s\n", r.err);
+                }
         }
 
         return 0;
