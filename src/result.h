@@ -5,19 +5,19 @@
  * Result type inspired by the Rust programming language
  */
 
-enum result_e { 
+typedef enum { 
         RESULT_VOID,
         RESULT_INT, 
         RESULT_ERROR
-};
+} result_e;
 
 typedef union {
         int i;
-} ok_t;
+} result_ok_t;
 
 typedef struct {
-        enum result_e result;
-        ok_t ok;
+        result_e result;
+        result_ok_t ok;
         char* err;
 } result_t;
 
