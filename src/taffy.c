@@ -9,6 +9,10 @@
 /* TODO
 Bug Fixes:
 
+Granular:
+        - Evaluate float expressions.
+        - Throw error when mixing types.
+
 Features:
         - Integer, Float, Char
         - Casting
@@ -110,6 +114,7 @@ parse_script(char* script) {
         result_void_t r;
 
         /* Literals / Value */
+        mpc_parser_t* float_lit_parser = mpc_new("float_lit");
         mpc_parser_t* int_lit_parser = mpc_new("int_lit");
         mpc_parser_t* value_parser = mpc_new("value");
 
@@ -127,14 +132,21 @@ parse_script(char* script) {
 
         mpca_lang(
                 MPCA_LANG_DEFAULT,
-                "\
-                int_lit         : /[0-9]+/ ;\
-                value           : <int_lit> | '(' <expr> ')' ;\
-                prod            : <value> ( ( '*' | '/' ) <value> )* ;\
-                sum             : <prod> ( ( '+' | '-' ) <prod> )* ;\
-                expr            : <sum> ;\
-                taffy           : /^/ <expr>+ /$/ ;\
+                "                                                       \
+                int_lit         : /[1-9][0-9]*/ ;                       \
+                float_lit       : /[1-9][0-9]*.[0-9]+/ ;                \
+                                                                        \
+                value           : <float_lit>                           \
+                                | <int_lit>                             \
+                                | '(' <expr> ')'                        \
+                                ;                                       \
+                                                                        \
+                prod            : <value> ( ( '*' | '/' ) <value> )* ;  \
+                sum             : <prod> ( ( '+' | '-' ) <prod> )* ;    \
+                expr            : <sum> ;                               \
+                taffy           : /^/ <expr>+ /$/ ;                     \
                 ",
+                float_lit_parser,
                 int_lit_parser,
                 value_parser,
                 prod_parser,
@@ -147,11 +159,11 @@ parse_script(char* script) {
                 mpc_ast_print(ast.output);
                 puts("\n====================\n");
 
-                r = run_script(ast.output);
-                if (r.result == RESULT_ERROR) {
-                        mpc_ast_delete(ast.output);
-                        return r;
-                }
+                // r = run_script(ast.output);
+                // if (r.result == RESULT_ERROR) {
+                //         mpc_ast_delete(ast.output);
+                //         return r;
+                // }
 
                 mpc_ast_delete(ast.output);
         } else {
@@ -161,6 +173,7 @@ parse_script(char* script) {
 
         mpc_cleanup(6,
                 int_lit_parser,
+                float_lit_parser,
                 value_parser,
                 prod_parser,
                 sum_parser,
@@ -223,7 +236,7 @@ main(int argc, char* argv[]) {
         result_t r;
 
         if (argc != 2) {
-                fprintf(stderr, "Usage: taffy [FILE]");
+                fprintf(stderr, "Usage: taffy [FILE]\n");
         } else {
                 r = load_script(argv[1]);
                 if (r.result == RESULT_ERROR) {
